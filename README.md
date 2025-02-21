@@ -22,7 +22,6 @@ npm install -g env-cryptr
 ```
 
 Or use it directly with npx:
-
 ```bash
 npx env-cryptr <command>
 ```
@@ -31,50 +30,53 @@ npx env-cryptr <command>
 
 ### As a CLI Tool
 
-### Basic Structure
+#### Basic Structure
 
 Your .env file must include an `ENV_KEY` that will be used for encryption/decryption. This key MUST be 32 characters long.
 
 ```env
 ENV_KEY=this-is-32-characters-secure-key
 DATABASE_URL=mongodb://localhost:27017
-API_KEY=your-api-key
+API_KEY=your-secret-api-key
 ```
 
-### Encrypting .env file
+#### Encrypting .env file
 
-Basic usage, will print the encrypted token to the console
-
+Basic usage with flags, will print the encrypted token to console:
 ```bash
-npx env-cryptr -ei .env.example
+npx env-cryptr -e -i .env.example
 ```
 
-With custom input/output paths
-
+With custom input/output paths:
 ```bash
-npx env-cryptr -ei .env.example -o .env.encrypted
+npx env-cryptr -e -i .env.example -o .env.encrypted
 ```
 
-### Decrypting .env file
-
-Basic usage with token string, will print the decrypted .env file to the console:
+Using command syntax:
 ```bash
-npx env-cryptr -d eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+npx env-cryptr encrypt -i .env.example -o .env.encrypted
 ```
 
-Basic usage with input file, will print the decrypted .env file to the console:
+#### Decrypting .env file
+
+From a file, will print the decrypted .env to console:
 ```bash
 npx env-cryptr -d -i .env.encrypted
 ```
 
-With input file and output file:
+From a file with output:
 ```bash
 npx env-cryptr -d -i .env.encrypted -o .env.decrypted
 ```
 
-With token string and output file:
+Directly from a token:
 ```bash
-npx env-cryptr -d eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... -o .env.decrypted
+npx env-cryptr decrypt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+With token and output file:
+```bash
+npx env-cryptr decrypt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... -o .env.decrypted
 ```
 
 ### As a Node.js Module
@@ -96,24 +98,21 @@ const env = {
     API_KEY: 'your-secret-api-key'
 };
 
-// Or create a new instance for encryption
+// Create a new instance for encryption
 const cryptr = new EnvCryptr();
-
 const token = cryptr.encrypt(env);
 console.log('Encrypted token:', token);
 
-// ...
-
-// Initialize with an existing token
-const cryptr = new EnvCryptr('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJFTlZfSh...');
+// Initialize with an existing token for decryption
+const decryptor = new EnvCryptr(token);
 
 // Decrypt specific variables
-const dbUrl = cryptr.decrypt('DATABASE_URL');
+const dbUrl = decryptor.decrypt('DATABASE_URL');
 console.log('Decrypted DATABASE_URL:', dbUrl);
 
 // Get all decrypted values
 const allValues = Object.keys(env).reduce((acc, key) => {
-    acc[key] = cryptr.decrypt(key);
+    acc[key] = decryptor.decrypt(key);
     return acc;
 }, {});
 console.log('All decrypted values:', allValues);
@@ -151,15 +150,20 @@ try {
 
 ## Command Options
 
-### Encrypt Command
+### Encrypt Mode
 - `-e, --encrypt`: Encrypt mode
-- `-i, --input <path>` : Input .env file path (default: ".env")
-- `-o, --output <path>`: Output file path for the encrypted token (default: ".env.encrypted")
+- `-i, --input <path>`: Input .env file path (default: ".env")
+- `-o, --output <path>`: Output file path for the encrypted token (optional)
 
-### Decrypt Command
-- `-d, --decrypt`: Decrypt mode
-- `-i, --input <path>` : Input encrypted file path (default: ".env.encrypted")
-- `-o, --output <path>`: Output .env file path (default: ".env.decrypted")
+### Decrypt Mode
+- `-d, --decrypt`: Decrypt mode with file input
+- `-i, --input <path>`: Input encrypted file path
+- `-o, --output <path>`: Output .env file path (optional)
+
+### Direct Token Decrypt
+```bash
+env-cryptr decrypt <token> [-o output-file]
+```
 
 ## Error Handling
 
@@ -169,6 +173,7 @@ The tool includes comprehensive error handling for common scenarios:
 - Invalid file paths
 - Corrupted encrypted files
 - Invalid JWT tokens
+- Token tampering detection
 
 ## Contributing
 

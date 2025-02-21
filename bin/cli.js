@@ -5,6 +5,15 @@ import dotenv from 'dotenv';
 import fs from 'fs/promises';
 import EnvCryptr from '../src/envCryptr.js';
 import jwt from 'jsonwebtoken';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { readFileSync } from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const { version } = JSON.parse(
+    readFileSync(join(__dirname, '../package.json'), 'utf8')
+);
 
 // Helper function for encryption
 async function encryptAction(options) {
@@ -35,10 +44,35 @@ async function decryptAction(token, options) {
         // If token is not provided directly, try to read from file
         if (!token) {
             try {
-                token = (await fs.readFile(options.input, 'utf8')).trim();
+                // Add debug logging
+                const rawFileContent = await fs.readFile(options.input, 'utf8');
+
+                // Read and clean the token from file - remove whitespace and newlines
+                token = rawFileContent
+                    .toString()
+                    .replace(/\s+/g, '')
+                    .trim();
+
                 if (!token) {
                     throw new Error('Empty token file');
                 }
+
+                // Validate basic token format
+                const parts = token.split('.');
+                if (parts.length !== 3) {
+                    throw new Error(`Invalid JWT token format - found ${parts.length} parts, expected 3 (header.payload.signature)`);
+                }
+
+                // Try to decode each part to validate base64url format
+                try {
+                    const header = Buffer.from(parts[0], 'base64url').toString();
+                    const payload = Buffer.from(parts[1], 'base64url').toString();
+                    JSON.parse(header);
+                    JSON.parse(payload);
+                } catch (error) {
+                    throw new Error('Invalid JWT token format - parts must be valid base64url encoded JSON');
+                }
+
             } catch (error) {
                 if (error.code === 'ENOENT') {
                     console.error(`❌ File not found: ${options.input}`);
@@ -91,22 +125,23 @@ async function decryptAction(token, options) {
 program
     .name('env-cryptr')
     .description('CLI tool to encrypt and decrypt environment variables')
-    .version('1.0.0')
+    .version(version)
     .option('-e, --encrypt', 'Encrypt mode')
-    .option('-d, --decrypt [token]', 'Decrypt mode with optional token')
+    .option('-d, --decrypt', 'Decrypt mode')
     .option('-i, --input <path>', 'Input file path')
     .option('-o, --output <path>', 'Output file path (optional)')
     .addCommand(program.command('encrypt')
         .description('Encrypt a .env file into a JWT token')
-        .option('-i, --input <path>', 'Input .env file path', '.env')
+        .option('-i, --input <path>', 'Input .env file path')
         .option('-o, --output <path>', 'Output file path for the token (optional)')
-        .action(encryptAction))
-    .addCommand(program.command('decrypt')
-        .description('Decrypt a JWT token back to .env format')
-        .argument('[token]', 'JWT token to decrypt')
-        .option('-i, --input <path>', 'Input encrypted file path')
-        .option('-o, --output <path>', 'Output .env file path (optional)')
-        .action(decryptAction))
+        .action((cmdOptions) => {
+            // Use command options first, fall back to global options
+            const options = {
+                input: cmdOptions.input || program.opts().input || '.env',
+                output: cmdOptions.output || program.opts().output
+            };
+            encryptAction(options);
+        }))
     .action((options) => {
         if (options.encrypt && options.decrypt) {
             console.error('❌ Error: Cannot use both encrypt and decrypt modes simultaneously');
@@ -114,21 +149,28 @@ program
         }
 
         if (options.encrypt) {
-            options.input = options.input || '.env';
+            if (!options.input) {
+                console.error('❌ Error: Please provide an input file for encryption using -i');
+                process.exit(1);
+            }
             encryptAction(options);
         } else if (options.decrypt) {
-            // If decrypt has a value, use it as the token
-            if (typeof options.decrypt === 'string') {
-                decryptAction(options.decrypt, { output: options.output });
-            } else if (options.input) {
+            if (options.input) {
                 decryptAction(null, { input: options.input, output: options.output });
             } else {
-                console.error('❌ Error: Please provide either a token or input file for decryption');
+                console.error('❌ Error: Please provide an input file for decryption using -i');
                 process.exit(1);
             }
         } else if (!program.args.length) {
             program.help();
         }
     });
+
+// For direct token decryption, use the decrypt command
+program
+    .command('decrypt <token>')
+    .description('Decrypt a JWT token back to .env format')
+    .option('-o, --output <path>', 'Output .env file path (optional)')
+    .action((token, options) => decryptAction(token, options));
 
 program.parse(); 

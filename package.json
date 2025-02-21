@@ -2,7 +2,7 @@
     "name": "env-cryptr",
     "author": "Mohd Khairulnizam",
     "license": "MIT",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "A tool to encrypt and decrypt environment variables using JWT",
     "main": "src/envCryptr.js",
     "type": "module",

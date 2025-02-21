@@ -1,6 +1,6 @@
 # env-cryptr 
 
-A secure command-line tool to encrypt and decrypt environment variables using JWT tokens. Perfect for safely storing sensitive environment variables in version control.
+A secure command-line tool to encrypt and decrypt environment variables using JWT tokens. Perfect for safely storing sensitive environment variables.
 
 ## Features
 
@@ -57,16 +57,24 @@ npx env-cryptr -ei .env.example -o .env.encrypted
 
 ### Decrypting .env file
 
-Basic usage, will print the decrypted .env file to the console
-
+Basic usage with token string, will print the decrypted .env file to the console:
 ```bash
-npx env-cryptr -di .env.encrypted
+npx env-cryptr -d eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-With custom input/output paths
-
+Basic usage with input file, will print the decrypted .env file to the console:
 ```bash
-npx env-cryptr -di .env.encrypted -o .env.decrypted
+npx env-cryptr -d -i .env.encrypted
+```
+
+With input file and output file:
+```bash
+npx env-cryptr -d -i .env.encrypted -o .env.decrypted
+```
+
+With token string and output file:
+```bash
+npx env-cryptr -d eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... -o .env.decrypted
 ```
 
 ### As a Node.js Module

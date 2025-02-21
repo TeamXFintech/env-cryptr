@@ -30,22 +30,23 @@ async function encryptAction(options) {
 }
 
 // Helper function for decryption
-async function decryptAction(options) {
+async function decryptAction(token, options) {
     try {
-        // Read the token from file
-        let token;
-        try {
-            token = (await fs.readFile(options.input, 'utf8')).trim();
-            if (!token) {
-                throw new Error('Empty token file');
+        // If token is not provided directly, try to read from file
+        if (!token) {
+            try {
+                token = (await fs.readFile(options.input, 'utf8')).trim();
+                if (!token) {
+                    throw new Error('Empty token file');
+                }
+            } catch (error) {
+                if (error.code === 'ENOENT') {
+                    console.error(`❌ File not found: ${options.input}`);
+                } else {
+                    console.error(`❌ Error reading file: ${error.message}`);
+                }
+                process.exit(1);
             }
-        } catch (error) {
-            if (error.code === 'ENOENT') {
-                console.error(`❌ File not found: ${options.input}`);
-            } else {
-                console.error(`❌ Error reading file: ${error.message}`);
-            }
-            process.exit(1);
         }
 
         try {
@@ -92,7 +93,7 @@ program
     .description('CLI tool to encrypt and decrypt environment variables')
     .version('1.0.0')
     .option('-e, --encrypt', 'Encrypt mode')
-    .option('-d, --decrypt', 'Decrypt mode')
+    .option('-d, --decrypt [token]', 'Decrypt mode with optional token')
     .option('-i, --input <path>', 'Input file path')
     .option('-o, --output <path>', 'Output file path (optional)')
     .addCommand(program.command('encrypt')
@@ -102,7 +103,8 @@ program
         .action(encryptAction))
     .addCommand(program.command('decrypt')
         .description('Decrypt a JWT token back to .env format')
-        .option('-i, --input <path>', 'Input encrypted file path', '.env.encrypted')
+        .argument('[token]', 'JWT token to decrypt')
+        .option('-i, --input <path>', 'Input encrypted file path')
         .option('-o, --output <path>', 'Output .env file path (optional)')
         .action(decryptAction))
     .action((options) => {
@@ -115,8 +117,15 @@ program
             options.input = options.input || '.env';
             encryptAction(options);
         } else if (options.decrypt) {
-            options.input = options.input || '.env.encrypted';
-            decryptAction(options);
+            // If decrypt has a value, use it as the token
+            if (typeof options.decrypt === 'string') {
+                decryptAction(options.decrypt, { output: options.output });
+            } else if (options.input) {
+                decryptAction(null, { input: options.input, output: options.output });
+            } else {
+                console.error('❌ Error: Please provide either a token or input file for decryption');
+                process.exit(1);
+            }
         } else if (!program.args.length) {
             program.help();
         }

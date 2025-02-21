@@ -29,6 +29,11 @@ class EnvCryptr {
                     throw new Error('ENV_KEY not found in token payload');
                 }
 
+                // Validate ENV_KEY length
+                if (payload.ENV_KEY.length !== 32) {
+                    throw new Error('ENV_KEY must be 32 characters long');
+                }
+
                 this.secret = payload.ENV_KEY;
             } catch (error) {
                 throw new Error(`Failed to initialize from token: ${error.message}`);
@@ -47,6 +52,12 @@ class EnvCryptr {
         if (!env.ENV_KEY) {
             throw new Error('ENV_KEY is required in process.env');
         }
+
+        // Validate ENV_KEY length
+        if (env.ENV_KEY.length !== 32) {
+            throw new Error('ENV_KEY must be 32 characters long');
+        }
+
         this.secret = env.ENV_KEY;
         const payload = {
             ENV_KEY: env.ENV_KEY // Include ENV_KEY in payload for later initialization
@@ -94,9 +105,6 @@ class EnvCryptr {
                 throw new Error(`Failed to decrypt value for ${envKey}: ${error.message}`);
             }
         } catch (error) {
-            if (error.name === 'JsonWebTokenError') {
-                throw new Error('Invalid token signature');
-            }
             throw error;
         }
     }

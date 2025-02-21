@@ -135,12 +135,29 @@ program
         .option('-i, --input <path>', 'Input .env file path')
         .option('-o, --output <path>', 'Output file path for the token (optional)')
         .action((cmdOptions) => {
-            // Use command options first, fall back to global options
             const options = {
                 input: cmdOptions.input || program.opts().input || '.env',
                 output: cmdOptions.output || program.opts().output
             };
             encryptAction(options);
+        }))
+    .addCommand(program.command('decrypt')
+        .description('Decrypt a JWT token back to .env format')
+        .argument('[token]', 'JWT token to decrypt (optional)')
+        .option('-i, --input <path>', 'Input encrypted file path')
+        .option('-o, --output <path>', 'Output .env file path (optional)')
+        .action((token, cmdOptions) => {
+            // Use command options first, fall back to global options
+            const options = {
+                input: cmdOptions.input || program.opts().input,
+                output: cmdOptions.output || program.opts().output
+            };
+
+            if (!token && !options.input) {
+                console.error('❌ Error: Please provide either a token or input file (-i)');
+                process.exit(1);
+            }
+            decryptAction(token, options);
         }))
     .action((options) => {
         if (options.encrypt && options.decrypt) {
@@ -165,12 +182,5 @@ program
             program.help();
         }
     });
-
-// For direct token decryption, use the decrypt command
-program
-    .command('decrypt <token>')
-    .description('Decrypt a JWT token back to .env format')
-    .option('-o, --output <path>', 'Output .env file path (optional)')
-    .action((token, options) => decryptAction(token, options));
 
 program.parse(); 

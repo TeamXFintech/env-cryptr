@@ -38,44 +38,52 @@ Your .env file must include an `ENV_KEY` that will be used for encryption/decryp
 ENV_KEY=this-is-32-characters-secure-key
 DATABASE_URL=mongodb://localhost:27017
 API_KEY=your-secret-api-key
+COMPLEX_VALUE='value with spaces and symbols !@#$%^&*()'
 ```
 
 #### Encrypting .env file
 
-Basic usage with flags, will print the encrypted token to console:
+Using flags:
 ```bash
+# Print to console
 npx env-cryptr -e -i .env.example
-```
 
-With custom input/output paths:
-```bash
+# Save to file
 npx env-cryptr -e -i .env.example -o .env.encrypted
 ```
 
-Using command syntax:
+Using command:
 ```bash
+# Print to console
+npx env-cryptr encrypt -i .env.example
+
+# Save to file
 npx env-cryptr encrypt -i .env.example -o .env.encrypted
 ```
 
 #### Decrypting .env file
 
-From a file, will print the decrypted .env to console:
+Using flags:
 ```bash
+# From file, print to console
 npx env-cryptr -d -i .env.encrypted
-```
 
-From a file with output:
-```bash
+# From file, save to file
 npx env-cryptr -d -i .env.encrypted -o .env.decrypted
 ```
 
-Directly from a token:
+Using command:
 ```bash
-npx env-cryptr decrypt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
+# From file, print to console
+npx env-cryptr decrypt -i .env.encrypted
 
-With token and output file:
-```bash
+# From file, save to file
+npx env-cryptr decrypt -i .env.encrypted -o .env.decrypted
+
+# From token, print to console
+npx env-cryptr decrypt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# From token, save to file
 npx env-cryptr decrypt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... -o .env.decrypted
 ```
 
@@ -118,50 +126,26 @@ const allValues = Object.keys(env).reduce((acc, key) => {
 console.log('All decrypted values:', allValues);
 ```
 
-### API Reference
-
-#### `new EnvCryptr(token?: string)`
-Creates a new instance of EnvCryptr. Optionally accepts an existing token for decryption.
-
-#### `encrypt(env: object): string`
-Encrypts an object containing environment variables. The object must include an ENV_KEY property that is 32 characters long.
-
-#### `decrypt(key: string): string`
-Decrypts a specific environment variable value from the token. Throws an error if the key doesn't exist or if decryption fails.
-
-### Error Handling
-
-```javascript
-try {
-    const cryptr = new EnvCryptr(token);
-    const value = cryptr.decrypt('SOME_KEY');
-} catch (error) {
-    if (error.message.includes('ENV_KEY')) {
-        console.error('Missing or invalid ENV_KEY');
-    } else if (error.message.includes('not found')) {
-        console.error('Key not found in token');
-    } else if (error.message.includes('authentication failed')) {
-        console.error('Token tampering detected');
-    } else {
-        console.error('Decryption error:', error.message);
-    }
-}
-```
-
 ## Command Options
 
 ### Encrypt Mode
-- `-e, --encrypt`: Encrypt mode
-- `-i, --input <path>`: Input .env file path (default: ".env")
-- `-o, --output <path>`: Output file path for the encrypted token (optional)
+```bash
+# Using flags
+env-cryptr -e -i <input-file> [-o output-file]
+
+# Using command
+env-cryptr encrypt -i <input-file> [-o output-file]
+```
 
 ### Decrypt Mode
-- `-d, --decrypt`: Decrypt mode with file input
-- `-i, --input <path>`: Input encrypted file path
-- `-o, --output <path>`: Output .env file path (optional)
-
-### Direct Token Decrypt
 ```bash
+# Using flags with file
+env-cryptr -d -i <input-file> [-o output-file]
+
+# Using command with file
+env-cryptr decrypt -i <input-file> [-o output-file]
+
+# Using command with token
 env-cryptr decrypt <token> [-o output-file]
 ```
 

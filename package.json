@@ -2,12 +2,15 @@
     "name": "env-cryptr",
     "author": "Mohd Khairulnizam",
     "license": "MIT",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "description": "A tool to encrypt and decrypt environment variables using JWT",
-    "main": "src/envCryptr.js",
+    "main": "./src/envCryptr.js",
+    "browser": "./src/envCryptr.browser.js",
     "type": "module",
     "exports": {
-        ".": "./src/envCryptr.js"
+        "node": "./src/envCryptr.js",
+        "browser": "./src/envCryptr.browser.js",
+        "default": "./src/envCryptr.js"
     },
     "bin": {
         "env-cryptr": "./bin/cli.js"
@@ -28,7 +31,7 @@
     "dependencies": {
         "commander": "^11.1.0",
         "dotenv": "^16.3.1",
-        "jsonwebtoken": "^9.0.2"
+        "jose": "^5.2.3"
     },
     "devDependencies": {
         "@babel/core": "^7.24.0",

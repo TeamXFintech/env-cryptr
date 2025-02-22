@@ -4,7 +4,7 @@ import { program } from 'commander';
 import dotenv from 'dotenv';
 import fs from 'fs/promises';
 import EnvCryptr from '../src/envCryptr.js';
-import jwt from 'jsonwebtoken';
+import * as jose from 'jose';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
@@ -18,14 +18,10 @@ const { version } = JSON.parse(
 // Helper function for encryption
 async function encryptAction(options) {
     try {
-        // Load .env file
         const envConfig = dotenv.parse(await fs.readFile(options.input));
-
-        // Create new instance and encrypt
         const cryptr = new EnvCryptr();
-        const token = cryptr.encrypt(envConfig);
+        const token = await cryptr.encrypt(envConfig);
 
-        // If output file is specified, save to file, otherwise print to console
         if (options.output) {
             await fs.writeFile(options.output, token);
             console.log(`✅ Environment variables encrypted and saved to ${options.output}`);
@@ -44,11 +40,8 @@ async function decryptAction(token, options) {
         // If token is not provided directly, try to read from file
         if (!token) {
             try {
-                // Add debug logging
-                const rawFileContent = await fs.readFile(options.input, 'utf8');
-
-                // Read and clean the token from file - remove whitespace and newlines
-                token = rawFileContent
+                // Read and clean the token from file
+                token = (await fs.readFile(options.input, 'utf8'))
                     .toString()
                     .replace(/\s+/g, '')
                     .trim();
@@ -57,22 +50,11 @@ async function decryptAction(token, options) {
                     throw new Error('Empty token file');
                 }
 
-                // Validate basic token format
+                // Basic validation of token format
                 const parts = token.split('.');
                 if (parts.length !== 3) {
-                    throw new Error(`Invalid JWT token format - found ${parts.length} parts, expected 3 (header.payload.signature)`);
+                    throw new Error('Invalid JWT token format - must have three parts (header.payload.signature)');
                 }
-
-                // Try to decode each part to validate base64url format
-                try {
-                    const header = Buffer.from(parts[0], 'base64url').toString();
-                    const payload = Buffer.from(parts[1], 'base64url').toString();
-                    JSON.parse(header);
-                    JSON.parse(payload);
-                } catch (error) {
-                    throw new Error('Invalid JWT token format - parts must be valid base64url encoded JSON');
-                }
-
             } catch (error) {
                 if (error.code === 'ENOENT') {
                     console.error(`❌ File not found: ${options.input}`);
@@ -85,7 +67,8 @@ async function decryptAction(token, options) {
 
         try {
             const cryptr = new EnvCryptr(token);
-            const payload = jwt.verify(token, cryptr.secret);
+            const secret = new TextEncoder().encode(cryptr.secret);
+            const { payload } = await jose.jwtVerify(token, secret);
 
             let envContent = '';
             for (const [key, value] of Object.entries(payload)) {
@@ -95,7 +78,7 @@ async function decryptAction(token, options) {
                 }
 
                 try {
-                    const decryptedValue = cryptr.decrypt(key);
+                    const decryptedValue = await cryptr.decrypt(key);
                     envContent += `${key}=${decryptedValue}\n`;
                 } catch (error) {
                     console.error(`❌ Warning: Could not decrypt ${key}: ${error.message}`);
@@ -109,7 +92,7 @@ async function decryptAction(token, options) {
                 console.log(envContent);
             }
         } catch (error) {
-            if (error.name === 'JsonWebTokenError') {
+            if (error.code === 'ERR_JWS_INVALID') {
                 console.error('❌ Invalid token format or signature');
             } else {
                 console.error('❌ Error:', error.message);

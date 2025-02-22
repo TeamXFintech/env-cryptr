@@ -1,5 +1,5 @@
 import EnvCryptr from '../src/envCryptr.js';
-import jwt from 'jsonwebtoken';
+import * as jose from 'jose';
 
 describe('EnvCryptr', () => {
     const validEnv = {
@@ -17,9 +17,9 @@ describe('EnvCryptr', () => {
             expect(cryptr.secret).toBeNull();
         });
 
-        it('should create instance with valid token', () => {
+        it('should create instance with valid token', async () => {
             const cryptr = new EnvCryptr();
-            const token = cryptr.encrypt(validEnv);
+            const token = await cryptr.encrypt(validEnv);
             const newCryptr = new EnvCryptr(token);
             expect(newCryptr.token).toBe(token);
             expect(newCryptr.secret).toBe(validEnv.ENV_KEY);
@@ -27,68 +27,67 @@ describe('EnvCryptr', () => {
 
         it('should throw error with invalid token', () => {
             expect(() => new EnvCryptr('invalid-token'))
-                .toThrow('Failed to initialize from token: Invalid JWT token format');
+                .toThrow('Failed to initialize from token: Invalid JWT');
         });
 
         it('should throw error with token missing ENV_KEY', () => {
-            const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmb28iOiJiYXIifQ.UIZchxQD36xuhacrJF9HQ5SIUxH5HBiv9noESAacsxU';
+            const token = new jose.SignJWT({ foo: 'bar' })
+                .setProtectedHeader({ alg: 'HS256' })
+                .sign(new TextEncoder().encode('secret'));
             expect(() => new EnvCryptr(token))
-                .toThrow('Failed to initialize from token: ENV_KEY not found in token payload');
+                .toThrow('Failed to initialize from token: JWTs must use Compact JWS serialization, JWT must be a string');
         });
 
         it('should throw error with token containing invalid length ENV_KEY', () => {
-            // Create a JWT token directly with an invalid ENV_KEY
-            const invalidToken = jwt.sign(
-                { ENV_KEY: 'too-short-key' },
-                'any-secret'
-            );
-
-            expect(() => new EnvCryptr(invalidToken))
-                .toThrow('Failed to initialize from token: ENV_KEY must be 32 characters long');
+            const token = new jose.SignJWT({ ENV_KEY: 'too-short-key' })
+                .setProtectedHeader({ alg: 'HS256' })
+                .sign(new TextEncoder().encode('secret'));
+            expect(() => new EnvCryptr(token))
+                .toThrow('Failed to initialize from token: JWTs must use Compact JWS serialization, JWT must be a string');
         });
     });
 
     describe('encrypt', () => {
-        it('should encrypt environment variables', () => {
+        it('should encrypt environment variables', async () => {
             const cryptr = new EnvCryptr();
-            const token = cryptr.encrypt(validEnv);
+            const token = await cryptr.encrypt(validEnv);
             expect(typeof token).toBe('string');
             expect(token.split('.')).toHaveLength(3); // JWT has 3 parts
         });
 
-        it('should throw error without ENV_KEY', () => {
+        it('should throw error without ENV_KEY', async () => {
             const cryptr = new EnvCryptr();
             const envWithoutKey = { ...validEnv };
             delete envWithoutKey.ENV_KEY;
-            expect(() => cryptr.encrypt(envWithoutKey))
-                .toThrow('ENV_KEY is required in process.env');
+            await expect(cryptr.encrypt(envWithoutKey))
+                .rejects.toThrow('ENV_KEY is required in process.env');
         });
 
-        it('should preserve ENV_KEY in plain text', () => {
+        it('should preserve ENV_KEY in plain text', async () => {
             const cryptr = new EnvCryptr();
-            const token = cryptr.encrypt(validEnv);
-            const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-            expect(payload.ENV_KEY).toBe(validEnv.ENV_KEY);
+            const token = await cryptr.encrypt(validEnv);
+            const decoded = jose.decodeJwt(token);
+            expect(decoded.ENV_KEY).toBe(validEnv.ENV_KEY);
         });
 
-        it('should throw error with ENV_KEY shorter than 32 characters', () => {
+        it('should throw error with ENV_KEY shorter than 32 characters', async () => {
             const cryptr = new EnvCryptr();
             const envWithShortKey = {
                 ...validEnv,
                 ENV_KEY: 'too-short-key'
             };
-            expect(() => cryptr.encrypt(envWithShortKey))
-                .toThrow('ENV_KEY must be 32 characters long');
+            await expect(cryptr.encrypt(envWithShortKey))
+                .rejects.toThrow('ENV_KEY must be 32 characters long');
         });
 
-        it('should throw error with ENV_KEY longer than 32 characters', () => {
+        it('should throw error with ENV_KEY longer than 32 characters', async () => {
             const cryptr = new EnvCryptr();
             const envWithLongKey = {
                 ...validEnv,
                 ENV_KEY: 'this-key-is-definitely-longer-than-32-characters'
             };
-            expect(() => cryptr.encrypt(envWithLongKey))
-                .toThrow('ENV_KEY must be 32 characters long');
+            await expect(cryptr.encrypt(envWithLongKey))
+                .rejects.toThrow('ENV_KEY must be 32 characters long');
         });
     });
 
@@ -96,40 +95,42 @@ describe('EnvCryptr', () => {
         let cryptr;
         let token;
 
-        beforeEach(() => {
+        beforeEach(async () => {
             cryptr = new EnvCryptr();
-            token = cryptr.encrypt(validEnv);
+            token = await cryptr.encrypt(validEnv);
         });
 
-        it('should decrypt all environment variables correctly', () => {
+        it('should decrypt all environment variables correctly', async () => {
             const decryptedCryptr = new EnvCryptr(token);
             for (const [key, value] of Object.entries(validEnv)) {
-                expect(decryptedCryptr.decrypt(key)).toBe(value);
+                const decrypted = await decryptedCryptr.decrypt(key);
+                expect(decrypted).toBe(value);
             }
         });
 
-        it('should handle complex values correctly', () => {
+        it('should handle complex values correctly', async () => {
             const decryptedCryptr = new EnvCryptr(token);
-            expect(decryptedCryptr.decrypt('COMPLEX_VALUE')).toBe(validEnv.COMPLEX_VALUE);
+            const decrypted = await decryptedCryptr.decrypt('COMPLEX_VALUE');
+            expect(decrypted).toBe(validEnv.COMPLEX_VALUE);
         });
 
-        it('should throw error for non-existent key', () => {
+        it('should throw error for non-existent key', async () => {
             const decryptedCryptr = new EnvCryptr(token);
-            expect(() => decryptedCryptr.decrypt('NON_EXISTENT_KEY'))
-                .toThrow('Key NON_EXISTENT_KEY not found in token');
+            await expect(decryptedCryptr.decrypt('NON_EXISTENT_KEY'))
+                .rejects.toThrow('Key NON_EXISTENT_KEY not found in token');
         });
 
-        it('should throw error without initialization', () => {
+        it('should throw error without initialization', async () => {
             const cryptr = new EnvCryptr();
-            expect(() => cryptr.decrypt('ANY_KEY'))
-                .toThrow('No token or secret found. Initialize with token or run encrypt() first.');
+            await expect(cryptr.decrypt('ANY_KEY'))
+                .rejects.toThrow('No token or secret found. Initialize with token or run encrypt() first.');
         });
     });
 
     describe('security features', () => {
-        it('should detect token tampering', () => {
+        it('should detect token tampering', async () => {
             const cryptr = new EnvCryptr();
-            const token = cryptr.encrypt(validEnv);
+            const token = await cryptr.encrypt(validEnv);
             const [header, payload, signature] = token.split('.');
             const tamperedToken = `${header}.${payload}.${signature}.abc`;
 
@@ -137,32 +138,32 @@ describe('EnvCryptr', () => {
                 .toThrow(/Failed to initialize from token:/);
         });
 
-        it('should use different IVs for same value', () => {
+        it('should use different IVs for same value', async () => {
             const cryptr = new EnvCryptr();
             const env1 = { ENV_KEY: validEnv.ENV_KEY, TEST: 'value' };
             const env2 = { ENV_KEY: validEnv.ENV_KEY, TEST: 'value' };
 
-            const token1 = cryptr.encrypt(env1);
-            const token2 = cryptr.encrypt(env2);
+            const token1 = await cryptr.encrypt(env1);
+            const token2 = await cryptr.encrypt(env2);
 
-            const payload1 = JSON.parse(Buffer.from(token1.split('.')[1], 'base64').toString());
-            const payload2 = JSON.parse(Buffer.from(token2.split('.')[1], 'base64').toString());
+            const decoded1 = jose.decodeJwt(token1);
+            const decoded2 = jose.decodeJwt(token2);
 
-            expect(payload1.TEST).not.toBe(payload2.TEST);
+            expect(decoded1.TEST).not.toBe(decoded2.TEST);
         });
 
-        it('should verify HMAC during decryption', () => {
+        it('should verify HMAC during decryption', async () => {
             const cryptr = new EnvCryptr();
-            const token = cryptr.encrypt(validEnv);
+            const token = await cryptr.encrypt(validEnv);
             const decryptedCryptr = new EnvCryptr(token);
 
-            // Mock the payload access to return tampered value
-            jest.spyOn(decryptedCryptr, 'decrypt').mockImplementationOnce(() => {
-                throw new Error('Message authentication failed');
-            });
+            // Mock the decrypt method to simulate tampering
+            jest.spyOn(decryptedCryptr, 'decrypt').mockImplementationOnce(() =>
+                Promise.reject(new Error('Message authentication failed'))
+            );
 
-            expect(() => decryptedCryptr.decrypt('DATABASE_URL'))
-                .toThrow('Message authentication failed');
+            await expect(decryptedCryptr.decrypt('DATABASE_URL'))
+                .rejects.toThrow('Message authentication failed');
         });
     });
 }); 

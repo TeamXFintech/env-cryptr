@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
+import * as jose from 'jose';
 
 /**
  * EnvCryptr class for encrypting and decrypting environment variables
@@ -17,24 +17,21 @@ class EnvCryptr {
 
         if (token) {
             try {
-                // Decode the token without verification to get the header and payload
-                const decoded = jwt.decode(token, { complete: true });
+                // Decode the token without verification
+                const decoded = jose.decodeJwt(token);
                 if (!decoded) {
                     throw new Error('Invalid JWT token format');
                 }
 
-                // Extract ENV_KEY from payload if available
-                const payload = decoded.payload;
-                if (!payload || !payload.ENV_KEY) {
+                if (!decoded.ENV_KEY) {
                     throw new Error('ENV_KEY not found in token payload');
                 }
 
-                // Validate ENV_KEY length
-                if (payload.ENV_KEY.length !== 32) {
+                if (decoded.ENV_KEY.length !== 32) {
                     throw new Error('ENV_KEY must be 32 characters long');
                 }
 
-                this.secret = payload.ENV_KEY;
+                this.secret = decoded.ENV_KEY;
             } catch (error) {
                 throw new Error(`Failed to initialize from token: ${error.message}`);
             }
@@ -48,29 +45,32 @@ class EnvCryptr {
      * @returns {string} JWT token containing encrypted values
      * @throws {Error} If ENV_KEY is missing or invalid
      */
-    encrypt(env) {
+    async encrypt(env) {
         if (!env.ENV_KEY) {
             throw new Error('ENV_KEY is required in process.env');
         }
 
-        // Validate ENV_KEY length
         if (env.ENV_KEY.length !== 32) {
             throw new Error('ENV_KEY must be 32 characters long');
         }
 
         this.secret = env.ENV_KEY;
         const payload = {
-            ENV_KEY: env.ENV_KEY // Include ENV_KEY in payload for later initialization
+            ENV_KEY: env.ENV_KEY
         };
 
-        // Loop through each environment variable except ENV_KEY
+        // Encrypt each environment variable
         for (let key in env) {
             if (key === 'ENV_KEY') continue;
             payload[key] = this.encryptValue(env[key], this.secret);
         }
 
-        // Create a JWT token with the payload, signed with the secret
-        this.token = jwt.sign(payload, this.secret);
+        // Create JWT with jose
+        const secret = new TextEncoder().encode(this.secret);
+        this.token = await new jose.SignJWT(payload)
+            .setProtectedHeader({ alg: 'HS256' })
+            .sign(secret);
+
         return this.token;
     }
 
@@ -80,30 +80,24 @@ class EnvCryptr {
      * @returns {string} Decrypted value
      * @throws {Error} If key not found or decryption fails
      */
-    decrypt(envKey) {
+    async decrypt(envKey) {
         if (!this.token || !this.secret) {
             throw new Error('No token or secret found. Initialize with token or run encrypt() first.');
         }
 
         try {
-            // Verify and decode the JWT using the secret
-            const payload = jwt.verify(this.token, this.secret);
+            const secret = new TextEncoder().encode(this.secret);
+            const { payload } = await jose.jwtVerify(this.token, secret);
 
             if (!payload[envKey]) {
                 throw new Error(`Key ${envKey} not found in token`);
             }
 
-            // Don't decrypt ENV_KEY as it's stored in plain text
             if (envKey === 'ENV_KEY') {
                 return payload[envKey];
             }
 
-            // Decrypt the stored encrypted value for the given key
-            try {
-                return this.decryptValue(payload[envKey], this.secret);
-            } catch (error) {
-                throw new Error(`Failed to decrypt value for ${envKey}: ${error.message}`);
-            }
+            return this.decryptValue(payload[envKey], this.secret);
         } catch (error) {
             throw error;
         }

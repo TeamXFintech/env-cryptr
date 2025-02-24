@@ -2,35 +2,43 @@
 <html>
 
 <head>
-    <title>env-cryptr Browser Demo</title>
+    <title>env-cryptr Demo</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-    <h1>env-cryptr Browser Demo</h1>
+    <h1>env-cryptr Demo</h1>
+    <p>Using ChaCha20 encryption with JWT for secure environment variables.</p>
 
-    <h2>Encrypt</h2>
-    <textarea id="envInput" rows="5" style="width: 100%">ENV_KEY=this-is-32-characters-secure-key
+    <div class="container">
+        <h2>Encrypt</h2>
+        <div class="section">
+            <p>Enter your environment variables (must include ENV_KEY with 32 characters):</p>
+            <textarea id="envInput" rows="5" class="code-input">ENV_KEY=this-is-32-characters-secure-key
 DATABASE_URL=mongodb://localhost:27017
 API_KEY=your-secret-api-key
 COMPLEX_VALUE='value with spaces and symbols !@#$%^&*()'</textarea>
-    <button onclick="window.encrypt()">Encrypt</button>
-    <pre id="encryptResult"></pre>
+            <button onclick="encrypt()">Encrypt</button>
+            <div class="result">
+                <h3>Result:</h3>
+                <pre id="encryptResult" class="code-output"></pre>
+            </div>
+        </div>
 
-    <h2>Decrypt</h2>
-    <textarea id="tokenInput" rows="5" style="width: 100%" placeholder="Paste JWT token here"></textarea>
-    <input id="keyInput" placeholder="Enter key to decrypt (e.g. DATABASE_URL)" style="width: 100%">
-    <button onclick="window.decrypt()">Decrypt</button>
-    <pre id="decryptResult"></pre>
+        <h2>Decrypt</h2>
+        <div class="section">
+            <p>Enter the JWT token:</p>
+            <textarea id="tokenInput" rows="5" class="code-input" placeholder="Paste JWT token here"></textarea>
+            <p>Enter the key to decrypt:</p>
+            <input id="keyInput" class="code-input" placeholder="e.g. DATABASE_URL">
+            <button onclick="decrypt()">Decrypt</button>
+            <div class="result">
+                <h3>Result:</h3>
+                <pre id="decryptResult" class="code-output"></pre>
+            </div>
+        </div>
+    </div>
 
-    <script type="importmap">
-    {
-        "imports": {
-            "jose": "https://cdn.skypack.dev/jose",
-            "@env-cryptr/browser": "/src/envCryptr.browser.js"
-        }
-    }
-    </script>
     <script type="module" src="index.js"></script>
 </body>
 

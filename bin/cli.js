@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import { program } from 'commander';
+import { Command } from 'commander';
 import dotenv from 'dotenv';
-import fs from 'fs/promises';
+import * as fs from 'fs/promises';
 import EnvCryptr from '../src/envCryptr.js';
-import * as jose from 'jose';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
@@ -14,6 +13,8 @@ const __dirname = dirname(__filename);
 const { version } = JSON.parse(
     readFileSync(join(__dirname, '../package.json'), 'utf8')
 );
+
+const program = new Command();
 
 // Helper function for encryption
 async function encryptAction(options) {
@@ -67,18 +68,17 @@ async function decryptAction(token, options) {
 
         try {
             const cryptr = new EnvCryptr(token);
-            const secret = new TextEncoder().encode(cryptr.secret);
-            const { payload } = await jose.jwtVerify(token, secret);
+            const decoded = cryptr.token ? JSON.parse(atob(token.split('.')[1])) : {};
 
             let envContent = '';
-            for (const [key, value] of Object.entries(payload)) {
+            for (const [key, value] of Object.entries(decoded)) {
                 // Skip JWT-specific claims
                 if (['iat', 'exp', 'nbf', 'sub', 'aud', 'iss'].includes(key)) {
                     continue;
                 }
 
                 try {
-                    const decryptedValue = await cryptr.decrypt(key);
+                    const decryptedValue = cryptr.decrypt(key);
                     envContent += `${key}=${decryptedValue}\n`;
                 } catch (error) {
                     console.error(`❌ Warning: Could not decrypt ${key}: ${error.message}`);
@@ -92,11 +92,7 @@ async function decryptAction(token, options) {
                 console.log(envContent);
             }
         } catch (error) {
-            if (error.code === 'ERR_JWS_INVALID') {
-                console.error('❌ Invalid token format or signature');
-            } else {
-                console.error('❌ Error:', error.message);
-            }
+            console.error('❌ Error:', error.message);
             process.exit(1);
         }
     } catch (error) {
@@ -166,4 +162,7 @@ program
         }
     });
 
-program.parse(); 
+program.parse();
+
+// Make functions available for testing
+export { encryptAction, decryptAction }; 

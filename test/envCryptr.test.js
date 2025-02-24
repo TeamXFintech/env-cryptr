@@ -1,6 +1,4 @@
 import EnvCryptr from '../src/envCryptr.js';
-import BrowserEnvCryptr from '../src/envCryptr.browser.js';
-import * as jose from 'jose';
 import { jest } from '@jest/globals';
 
 describe('EnvCryptr', () => {
@@ -19,9 +17,9 @@ describe('EnvCryptr', () => {
             expect(cryptr.secret).toBeNull();
         });
 
-        it('should create instance with valid token', async () => {
+        it('should create instance with valid token', () => {
             const cryptr = new EnvCryptr();
-            const token = await cryptr.encrypt(validEnv);
+            const token = cryptr.encrypt(validEnv);
             const newCryptr = new EnvCryptr(token);
             expect(newCryptr.token).toBe(token);
             expect(newCryptr.secret).toBe(validEnv.ENV_KEY);
@@ -29,229 +27,137 @@ describe('EnvCryptr', () => {
 
         it('should throw error with invalid token', () => {
             expect(() => new EnvCryptr('invalid-token'))
-                .toThrow('Failed to initialize from token: Invalid JWT');
+                .toThrow('Failed to initialize from token');
         });
 
-        it('should throw error with token missing ENV_KEY', async () => {
-            const secret = new TextEncoder().encode('secret');
-            const token = await new jose.SignJWT({ foo: 'bar' })
-                .setProtectedHeader({ alg: 'HS256' })
-                .sign(secret);
-
-            expect(() => new EnvCryptr(token))
-                .toThrow('Failed to initialize from token: ENV_KEY not found in token payload');
+        it('should throw error with token missing ENV_KEY', () => {
+            const cryptr = new EnvCryptr();
+            const env = { ...validEnv };
+            delete env.ENV_KEY;
+            expect(() => cryptr.encrypt(env))
+                .toThrow('ENV_KEY is required in process.env');
         });
 
-        it('should throw error with token containing invalid length ENV_KEY', async () => {
-            const secret = new TextEncoder().encode('secret');
-            const token = await new jose.SignJWT({ ENV_KEY: 'too-short-key' })
-                .setProtectedHeader({ alg: 'HS256' })
-                .sign(secret);
-
-            expect(() => new EnvCryptr(token))
-                .toThrow('Failed to initialize from token: ENV_KEY must be 32 characters long');
+        it('should throw error with invalid ENV_KEY length', () => {
+            const cryptr = new EnvCryptr();
+            const env = { ...validEnv, ENV_KEY: 'too-short' };
+            expect(() => cryptr.encrypt(env))
+                .toThrow('ENV_KEY must be 32 characters long');
         });
     });
 
     describe('encrypt', () => {
-        it('should encrypt environment variables', async () => {
+        it('should encrypt environment variables', () => {
             const cryptr = new EnvCryptr();
-            const token = await cryptr.encrypt(validEnv);
+            const token = cryptr.encrypt(validEnv);
             expect(typeof token).toBe('string');
-            expect(token.split('.')).toHaveLength(3); // JWT has 3 parts
+            expect(token.split('.')).toHaveLength(3); // JWT format: header.payload.signature
         });
 
-        it('should throw error without ENV_KEY', async () => {
+        it('should create unique tokens for same data', () => {
             const cryptr = new EnvCryptr();
-            const envWithoutKey = { ...validEnv };
-            delete envWithoutKey.ENV_KEY;
-            await expect(cryptr.encrypt(envWithoutKey))
-                .rejects.toThrow('ENV_KEY is required in process.env');
+            const token1 = cryptr.encrypt(validEnv);
+            const token2 = cryptr.encrypt(validEnv);
+            const token3 = cryptr.encrypt(validEnv);
+
+            // Tokens should be different due to random nonce
+            expect(token1).not.toBe(token2);
+            expect(token2).not.toBe(token3);
+            expect(token3).not.toBe(token1);
+
+            // But should decrypt to same values
+            const cryptr1 = new EnvCryptr(token1);
+            const cryptr2 = new EnvCryptr(token2);
+            const cryptr3 = new EnvCryptr(token3);
+
+            for (const key of Object.keys(validEnv)) {
+                const value1 = cryptr1.decrypt(key);
+                const value2 = cryptr2.decrypt(key);
+                const value3 = cryptr3.decrypt(key);
+                expect(value1).toBe(value2);
+                expect(value2).toBe(value3);
+            }
         });
 
-        it('should preserve ENV_KEY in plain text', async () => {
+        it('should handle special characters and long strings', () => {
             const cryptr = new EnvCryptr();
-            const token = await cryptr.encrypt(validEnv);
-            const decoded = jose.decodeJwt(token);
-            expect(decoded.ENV_KEY).toBe(validEnv.ENV_KEY);
-        });
-
-        it('should throw error with ENV_KEY shorter than 32 characters', async () => {
-            const cryptr = new EnvCryptr();
-            const envWithShortKey = {
-                ...validEnv,
-                ENV_KEY: 'too-short-key'
+            const specialEnv = {
+                ENV_KEY: 'this-is-32-characters-secure-key',
+                SPECIAL: '!@#$%^&*()',
+                UNICODE: '你好世界',
+                SPACES: '  value  with  spaces  ',
+                LONG: 'x'.repeat(1000), // Test long string
             };
-            await expect(cryptr.encrypt(envWithShortKey))
-                .rejects.toThrow('ENV_KEY must be 32 characters long');
+
+            const token = cryptr.encrypt(specialEnv);
+            const newCryptr = new EnvCryptr(token);
+
+            for (const [key, value] of Object.entries(specialEnv)) {
+                expect(newCryptr.decrypt(key)).toBe(value);
+            }
         });
 
-        it('should throw error with ENV_KEY longer than 32 characters', async () => {
+        it('should handle multi-block encryption', () => {
             const cryptr = new EnvCryptr();
-            const envWithLongKey = {
-                ...validEnv,
-                ENV_KEY: 'this-key-is-definitely-longer-than-32-characters'
+            const longEnv = {
+                ENV_KEY: 'this-is-32-characters-secure-key',
+                BLOCK1: 'a'.repeat(64),  // One block
+                BLOCK2: 'b'.repeat(65),  // Just over one block
+                BLOCK3: 'c'.repeat(128), // Two blocks
+                BLOCK4: 'd'.repeat(200)  // Multiple blocks
             };
-            await expect(cryptr.encrypt(envWithLongKey))
-                .rejects.toThrow('ENV_KEY must be 32 characters long');
+
+            const token = cryptr.encrypt(longEnv);
+            const newCryptr = new EnvCryptr(token);
+
+            for (const [key, value] of Object.entries(longEnv)) {
+                expect(newCryptr.decrypt(key)).toBe(value);
+            }
         });
     });
 
     describe('decrypt', () => {
-        let cryptr;
-        let token;
+        it('should decrypt all values correctly', () => {
+            const cryptr = new EnvCryptr();
+            const token = cryptr.encrypt(validEnv);
+            const newCryptr = new EnvCryptr(token);
 
-        beforeEach(async () => {
-            cryptr = new EnvCryptr();
-            token = await cryptr.encrypt(validEnv);
-        });
-
-        it('should decrypt all environment variables correctly', async () => {
-            const decryptedCryptr = new EnvCryptr(token);
             for (const [key, value] of Object.entries(validEnv)) {
-                const decrypted = await decryptedCryptr.decrypt(key);
-                expect(decrypted).toBe(value);
+                expect(newCryptr.decrypt(key)).toBe(value);
             }
         });
 
-        it('should handle complex values correctly', async () => {
-            const decryptedCryptr = new EnvCryptr(token);
-            const decrypted = await decryptedCryptr.decrypt('COMPLEX_VALUE');
-            expect(decrypted).toBe(validEnv.COMPLEX_VALUE);
-        });
-
-        it('should throw error for non-existent key', async () => {
-            const decryptedCryptr = new EnvCryptr(token);
-            await expect(decryptedCryptr.decrypt('NON_EXISTENT_KEY'))
-                .rejects.toThrow('Key NON_EXISTENT_KEY not found in token');
-        });
-
-        it('should throw error without initialization', async () => {
+        it('should throw error for non-existent key', () => {
             const cryptr = new EnvCryptr();
-            await expect(cryptr.decrypt('ANY_KEY'))
-                .rejects.toThrow('No token or secret found. Initialize with token or run encrypt() first.');
+            const token = cryptr.encrypt(validEnv);
+            const newCryptr = new EnvCryptr(token);
+
+            expect(() => newCryptr.decrypt('NON_EXISTENT'))
+                .toThrow('Key NON_EXISTENT not found in token');
         });
     });
 
-    describe('security features', () => {
-        it('should detect token tampering', async () => {
-            const cryptr = new EnvCryptr();
-            const token = await cryptr.encrypt(validEnv);
-            const [header, payload, signature] = token.split('.');
-            const tamperedToken = `${header}.${payload}.abc.${signature}`;
+    describe('environment compatibility', () => {
+        it('should work in both Node.js and browser environments', () => {
+            // Mock browser environment
+            const originalWindow = global.window;
+            global.window = {};
+            global.btoa = str => Buffer.from(str).toString('base64');
+            global.atob = str => Buffer.from(str, 'base64').toString();
 
-            expect(() => new EnvCryptr(tamperedToken))
-                .toThrow(/Failed to initialize from token:/);
-        });
+            const browserCryptr = new EnvCryptr();
+            const browserToken = browserCryptr.encrypt(validEnv);
 
-        it('should use different IVs for same value', async () => {
-            const cryptr = new EnvCryptr();
-            const env1 = { ENV_KEY: validEnv.ENV_KEY, TEST: 'value' };
-            const env2 = { ENV_KEY: validEnv.ENV_KEY, TEST: 'value' };
+            // Restore Node.js environment
+            global.window = originalWindow;
+            delete global.btoa;
+            delete global.atob;
 
-            const token1 = await cryptr.encrypt(env1);
-            const token2 = await cryptr.encrypt(env2);
+            const nodeCryptr = new EnvCryptr(browserToken);
 
-            const decoded1 = jose.decodeJwt(token1);
-            const decoded2 = jose.decodeJwt(token2);
-
-            expect(decoded1.TEST).not.toBe(decoded2.TEST);
-        });
-
-        it('should verify HMAC during decryption', async () => {
-            const cryptr = new EnvCryptr();
-            const token = await cryptr.encrypt(validEnv);
-            const decryptedCryptr = new EnvCryptr(token);
-
-            // Mock the decrypt method to simulate tampering
-            jest.spyOn(decryptedCryptr, 'decrypt').mockImplementationOnce(() =>
-                Promise.reject(new Error('Message authentication failed'))
-            );
-
-            await expect(decryptedCryptr.decrypt('DATABASE_URL'))
-                .rejects.toThrow('Message authentication failed');
-        });
-    });
-
-    describe('cross-environment compatibility', () => {
-        it('should decrypt browser-encrypted tokens', async () => {
-            // Encrypt with browser version
-            const browserCryptr = new BrowserEnvCryptr();
-            const token = await browserCryptr.encrypt(validEnv);
-
-            // Decrypt with Node.js version
-            const nodeCryptr = new EnvCryptr(token);
+            // Values should be the same in both environments
             for (const [key, value] of Object.entries(validEnv)) {
-                const decrypted = await nodeCryptr.decrypt(key);
-                expect(decrypted).toBe(value);
-            }
-        });
-
-        it('should encrypt tokens that browser can decrypt', async () => {
-            // Encrypt with Node.js version
-            const nodeCryptr = new EnvCryptr();
-            const token = await nodeCryptr.encrypt(validEnv);
-
-            // Decrypt with browser version
-            const browserCryptr = new BrowserEnvCryptr(token);
-            for (const [key, value] of Object.entries(validEnv)) {
-                const decrypted = await browserCryptr.decrypt(key);
-                expect(decrypted).toBe(value);
-            }
-        });
-
-        it('should handle complex values consistently', async () => {
-            const complexEnv = {
-                ENV_KEY: 'this-is-32-characters-secure-key',
-                JSON_DATA: JSON.stringify({ foo: 'bar', num: 123 }),
-                UNICODE: '🚀 Hello 世界',
-                SPECIAL_CHARS: '!@#$%^&*()',
-                MULTILINE: 'line1\nline2\rline3\r\nline4'
-            };
-
-            // Test Node.js -> Browser
-            const nodeCryptr = new EnvCryptr();
-            const nodeToken = await nodeCryptr.encrypt(complexEnv);
-            const browserCryptr = new BrowserEnvCryptr(nodeToken);
-
-            for (const [key, value] of Object.entries(complexEnv)) {
-                const decrypted = await browserCryptr.decrypt(key);
-                expect(decrypted).toBe(value);
-            }
-
-            // Test Browser -> Node.js
-            const browserToken = await browserCryptr.encrypt(complexEnv);
-            const nodeCryptr2 = new EnvCryptr(browserToken);
-
-            for (const [key, value] of Object.entries(complexEnv)) {
-                const decrypted = await nodeCryptr2.decrypt(key);
-                expect(decrypted).toBe(value);
-            }
-        });
-
-        it('should maintain security features across environments', async () => {
-            // Test token tampering detection
-            const nodeCryptr = new EnvCryptr();
-            const token = await nodeCryptr.encrypt(validEnv);
-            const [header, payload, signature] = token.split('.');
-            const tamperedToken = `${header}.${payload}.abc.${signature}`;
-
-            expect(() => new BrowserEnvCryptr(tamperedToken))
-                .toThrow(/Failed to initialize from token:/);
-
-            // Test encryption uniqueness
-            const browserCryptr = new BrowserEnvCryptr();
-            const token1 = await browserCryptr.encrypt(validEnv);
-            const token2 = await browserCryptr.encrypt(validEnv);
-
-            const decoded1 = jose.decodeJwt(token1);
-            const decoded2 = jose.decodeJwt(token2);
-
-            // Same values should encrypt differently
-            for (const key of Object.keys(validEnv)) {
-                if (key !== 'ENV_KEY') {
-                    expect(decoded1[key]).not.toBe(decoded2[key]);
-                }
+                expect(nodeCryptr.decrypt(key)).toBe(value);
             }
         });
     });

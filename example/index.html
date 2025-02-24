@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>env-cryptr Browser Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <h1>env-cryptr Browser Demo</h1>
+
+    <h2>Encrypt</h2>
+    <textarea id="envInput" rows="5" style="width: 100%">ENV_KEY=this-is-32-characters-secure-key
+DATABASE_URL=mongodb://localhost:27017
+API_KEY=your-secret-api-key
+COMPLEX_VALUE='value with spaces and symbols !@#$%^&*()'</textarea>
+    <button onclick="window.encrypt()">Encrypt</button>
+    <pre id="encryptResult"></pre>
+
+    <h2>Decrypt</h2>
+    <textarea id="tokenInput" rows="5" style="width: 100%" placeholder="Paste JWT token here"></textarea>
+    <input id="keyInput" placeholder="Enter key to decrypt (e.g. DATABASE_URL)" style="width: 100%">
+    <button onclick="window.decrypt()">Decrypt</button>
+    <pre id="decryptResult"></pre>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "jose": "https://cdn.skypack.dev/jose",
+            "@env-cryptr/browser": "/src/envCryptr.browser.js"
+        }
+    }
+    </script>
+    <script type="module" src="index.js"></script>
+</body>
+
+</html>

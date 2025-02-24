@@ -1,5 +1,7 @@
 import EnvCryptr from '../src/envCryptr.js';
+import BrowserEnvCryptr from '../src/envCryptr.browser.js';
 import * as jose from 'jose';
+import { jest } from '@jest/globals';
 
 describe('EnvCryptr', () => {
     const validEnv = {
@@ -30,20 +32,24 @@ describe('EnvCryptr', () => {
                 .toThrow('Failed to initialize from token: Invalid JWT');
         });
 
-        it('should throw error with token missing ENV_KEY', () => {
-            const token = new jose.SignJWT({ foo: 'bar' })
+        it('should throw error with token missing ENV_KEY', async () => {
+            const secret = new TextEncoder().encode('secret');
+            const token = await new jose.SignJWT({ foo: 'bar' })
                 .setProtectedHeader({ alg: 'HS256' })
-                .sign(new TextEncoder().encode('secret'));
+                .sign(secret);
+
             expect(() => new EnvCryptr(token))
-                .toThrow('Failed to initialize from token: JWTs must use Compact JWS serialization, JWT must be a string');
+                .toThrow('Failed to initialize from token: ENV_KEY not found in token payload');
         });
 
-        it('should throw error with token containing invalid length ENV_KEY', () => {
-            const token = new jose.SignJWT({ ENV_KEY: 'too-short-key' })
+        it('should throw error with token containing invalid length ENV_KEY', async () => {
+            const secret = new TextEncoder().encode('secret');
+            const token = await new jose.SignJWT({ ENV_KEY: 'too-short-key' })
                 .setProtectedHeader({ alg: 'HS256' })
-                .sign(new TextEncoder().encode('secret'));
+                .sign(secret);
+
             expect(() => new EnvCryptr(token))
-                .toThrow('Failed to initialize from token: JWTs must use Compact JWS serialization, JWT must be a string');
+                .toThrow('Failed to initialize from token: ENV_KEY must be 32 characters long');
         });
     });
 
@@ -132,7 +138,7 @@ describe('EnvCryptr', () => {
             const cryptr = new EnvCryptr();
             const token = await cryptr.encrypt(validEnv);
             const [header, payload, signature] = token.split('.');
-            const tamperedToken = `${header}.${payload}.${signature}.abc`;
+            const tamperedToken = `${header}.${payload}.abc.${signature}`;
 
             expect(() => new EnvCryptr(tamperedToken))
                 .toThrow(/Failed to initialize from token:/);
@@ -164,6 +170,89 @@ describe('EnvCryptr', () => {
 
             await expect(decryptedCryptr.decrypt('DATABASE_URL'))
                 .rejects.toThrow('Message authentication failed');
+        });
+    });
+
+    describe('cross-environment compatibility', () => {
+        it('should decrypt browser-encrypted tokens', async () => {
+            // Encrypt with browser version
+            const browserCryptr = new BrowserEnvCryptr();
+            const token = await browserCryptr.encrypt(validEnv);
+
+            // Decrypt with Node.js version
+            const nodeCryptr = new EnvCryptr(token);
+            for (const [key, value] of Object.entries(validEnv)) {
+                const decrypted = await nodeCryptr.decrypt(key);
+                expect(decrypted).toBe(value);
+            }
+        });
+
+        it('should encrypt tokens that browser can decrypt', async () => {
+            // Encrypt with Node.js version
+            const nodeCryptr = new EnvCryptr();
+            const token = await nodeCryptr.encrypt(validEnv);
+
+            // Decrypt with browser version
+            const browserCryptr = new BrowserEnvCryptr(token);
+            for (const [key, value] of Object.entries(validEnv)) {
+                const decrypted = await browserCryptr.decrypt(key);
+                expect(decrypted).toBe(value);
+            }
+        });
+
+        it('should handle complex values consistently', async () => {
+            const complexEnv = {
+                ENV_KEY: 'this-is-32-characters-secure-key',
+                JSON_DATA: JSON.stringify({ foo: 'bar', num: 123 }),
+                UNICODE: '🚀 Hello 世界',
+                SPECIAL_CHARS: '!@#$%^&*()',
+                MULTILINE: 'line1\nline2\rline3\r\nline4'
+            };
+
+            // Test Node.js -> Browser
+            const nodeCryptr = new EnvCryptr();
+            const nodeToken = await nodeCryptr.encrypt(complexEnv);
+            const browserCryptr = new BrowserEnvCryptr(nodeToken);
+
+            for (const [key, value] of Object.entries(complexEnv)) {
+                const decrypted = await browserCryptr.decrypt(key);
+                expect(decrypted).toBe(value);
+            }
+
+            // Test Browser -> Node.js
+            const browserToken = await browserCryptr.encrypt(complexEnv);
+            const nodeCryptr2 = new EnvCryptr(browserToken);
+
+            for (const [key, value] of Object.entries(complexEnv)) {
+                const decrypted = await nodeCryptr2.decrypt(key);
+                expect(decrypted).toBe(value);
+            }
+        });
+
+        it('should maintain security features across environments', async () => {
+            // Test token tampering detection
+            const nodeCryptr = new EnvCryptr();
+            const token = await nodeCryptr.encrypt(validEnv);
+            const [header, payload, signature] = token.split('.');
+            const tamperedToken = `${header}.${payload}.abc.${signature}`;
+
+            expect(() => new BrowserEnvCryptr(tamperedToken))
+                .toThrow(/Failed to initialize from token:/);
+
+            // Test encryption uniqueness
+            const browserCryptr = new BrowserEnvCryptr();
+            const token1 = await browserCryptr.encrypt(validEnv);
+            const token2 = await browserCryptr.encrypt(validEnv);
+
+            const decoded1 = jose.decodeJwt(token1);
+            const decoded2 = jose.decodeJwt(token2);
+
+            // Same values should encrypt differently
+            for (const key of Object.keys(validEnv)) {
+                if (key !== 'ENV_KEY') {
+                    expect(decoded1[key]).not.toBe(decoded2[key]);
+                }
+            }
         });
     });
 }); 

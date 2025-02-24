@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import * as jose from 'jose';
 
 /**
@@ -17,7 +16,6 @@ class EnvCryptr {
 
         if (token) {
             try {
-                // Decode the token without verification
                 const decoded = jose.decodeJwt(token);
                 if (!decoded) {
                     throw new Error('Invalid JWT token format');
@@ -60,12 +58,29 @@ class EnvCryptr {
         };
 
         // Encrypt each environment variable
-        for (let key in env) {
+        for (const [key, value] of Object.entries(env)) {
             if (key === 'ENV_KEY') continue;
-            payload[key] = this.encryptValue(env[key], this.secret);
+
+            // Use jose's encryption with a consistent key
+            const encoder = new TextEncoder();
+            const secretKey = await jose.importJWK(
+                {
+                    kty: 'oct',
+                    k: Buffer.from(this.secret).toString('base64url'),
+                    alg: 'A256GCM',
+                    use: 'enc'
+                },
+                'A256GCM'
+            );
+
+            const encrypted = await new jose.CompactEncrypt(encoder.encode(value))
+                .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+                .encrypt(secretKey);
+
+            payload[key] = encrypted;
         }
 
-        // Create JWT with jose
+        // Create JWT
         const secret = new TextEncoder().encode(this.secret);
         this.token = await new jose.SignJWT(payload)
             .setProtectedHeader({ alg: 'HS256' })
@@ -97,59 +112,22 @@ class EnvCryptr {
                 return payload[envKey];
             }
 
-            return this.decryptValue(payload[envKey], this.secret);
+            // Use the same key configuration for decryption
+            const secretKey = await jose.importJWK(
+                {
+                    kty: 'oct',
+                    k: Buffer.from(this.secret).toString('base64url'),
+                    alg: 'A256GCM',
+                    use: 'enc'
+                },
+                'A256GCM'
+            );
+
+            const { plaintext } = await jose.compactDecrypt(payload[envKey], secretKey);
+            return new TextDecoder().decode(plaintext);
         } catch (error) {
             throw error;
         }
-    }
-
-    // Helper function to encrypt a value using AES-256-CBC 
-    encryptValue(value, secret) {
-        // Generate a random salt
-        const salt = crypto.randomBytes(16);
-        // Derive a key using PBKDF2
-        const key = crypto.pbkdf2Sync(secret, salt, 100000, 32, 'sha512');
-        // Create a random 16-byte initialization vector
-        const iv = crypto.randomBytes(16);
-        // Create a cipher using the derived key and iv
-        const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-        let encrypted = cipher.update(value, 'utf8', 'hex');
-        encrypted += cipher.final('hex');
-        // Create HMAC for authentication
-        const hmac = crypto.createHmac('sha256', key)
-            .update(encrypted)
-            .digest('hex');
-        // Return the salt, iv, hmac and encrypted text together, separated by ':'
-        return salt.toString('hex') + ':' + iv.toString('hex') + ':' + hmac + ':' + encrypted;
-    }
-
-    // Helper function to decrypt the value
-    decryptValue(encrypted, secret) {
-        const parts = encrypted.split(':');
-        if (parts.length !== 4) {
-            throw new Error('Invalid encrypted format');
-        }
-        const salt = Buffer.from(parts[0], 'hex');
-        const iv = Buffer.from(parts[1], 'hex');
-        const hmac = parts[2];
-        const encryptedText = parts[3];
-
-        // Derive the same key using PBKDF2
-        const key = crypto.pbkdf2Sync(secret, salt, 100000, 32, 'sha512');
-
-        // Verify HMAC
-        const calculatedHmac = crypto.createHmac('sha256', key)
-            .update(encryptedText)
-            .digest('hex');
-
-        if (calculatedHmac !== hmac) {
-            throw new Error('Message authentication failed');
-        }
-
-        const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-        return decrypted;
     }
 }
 

@@ -14,15 +14,16 @@ describe('EnvCryptr', () => {
             const cryptr = new EnvCryptr();
             expect(cryptr).toBeInstanceOf(EnvCryptr);
             expect(cryptr.token).toBeNull();
-            expect(cryptr.secret).toBeNull();
         });
 
         it('should create instance with valid token', () => {
             const cryptr = new EnvCryptr();
             const token = cryptr.encrypt(validEnv);
             const newCryptr = new EnvCryptr(token);
+
             expect(newCryptr.token).toBe(token);
-            expect(newCryptr.secret).toBe(validEnv.ENV_KEY);
+            // Test secret indirectly through decryption
+            expect(newCryptr.decrypt('ENV_KEY')).toBe(validEnv.ENV_KEY);
         });
 
         it('should throw error with invalid token', () => {

@@ -199,8 +199,9 @@ const chachaDecrypt = (encoded, key) => {
  * EnvCryptr class for encrypting and decrypting environment variables
  */
 const EnvCryptr = (() => {
-    // Private WeakMap to store decrypted values
+    // Private WeakMaps to store instance data
     const decryptedValues = new WeakMap();
+    const secrets = new WeakMap();
 
     return class {
         /**
@@ -210,7 +211,7 @@ const EnvCryptr = (() => {
          */
         constructor(token = null) {
             this.token = token;
-            this.secret = null;
+            secrets.set(this, null);
             decryptedValues.set(this, new Map());
 
             if (token) {
@@ -228,7 +229,7 @@ const EnvCryptr = (() => {
                         throw new Error('ENV_KEY must be 32 characters long');
                     }
 
-                    this.secret = decoded.ENV_KEY;
+                    secrets.set(this, decoded.ENV_KEY);
                     this.initializeDecryptedValues();
                 } catch (error) {
                     throw new Error(`Failed to initialize from token: ${error.message}`);
@@ -238,7 +239,8 @@ const EnvCryptr = (() => {
 
         initializeDecryptedValues() {
             const values = decryptedValues.get(this);
-            const decoded = jwt.decode(this.token, this.secret);
+            const secret = secrets.get(this);
+            const decoded = jwt.decode(this.token, secret);
 
             // Store ENV_KEY
             values.set('ENV_KEY', decoded.ENV_KEY);
@@ -248,11 +250,10 @@ const EnvCryptr = (() => {
                 if (key === 'ENV_KEY') continue;
 
                 try {
-                    const decrypted = chachaDecrypt(value, this.secret);
+                    const decrypted = chachaDecrypt(value, secret);
                     values.set(key, decrypted);
                 } catch (error) {
                     console.error(`Error decrypting ${key}:`, error);
-                    // Skip failed decryptions but continue with others
                 }
             }
         }
@@ -266,7 +267,8 @@ const EnvCryptr = (() => {
                 throw new Error('ENV_KEY must be 32 characters long');
             }
 
-            this.secret = env.ENV_KEY;
+            secrets.set(this, env.ENV_KEY);
+            const secret = secrets.get(this);
             const payload = {
                 ENV_KEY: env.ENV_KEY
             };
@@ -276,7 +278,7 @@ const EnvCryptr = (() => {
                 if (key === 'ENV_KEY') continue;
 
                 try {
-                    const encrypted = chachaEncrypt(value, this.secret);
+                    const encrypted = chachaEncrypt(value, secret);
                     payload[key] = encrypted;
                 } catch (error) {
                     console.error(`Error encrypting ${key}:`, error);
@@ -285,7 +287,7 @@ const EnvCryptr = (() => {
             }
 
             // Create JWT
-            this.token = jwt.encode(payload, this.secret);
+            this.token = jwt.encode(payload, secret);
             this.initializeDecryptedValues();
             return this.token;
         }

@@ -2,12 +2,18 @@ import * as jose from 'jose';
 
 /**
  * Browser-compatible version of EnvCryptr
- * Note: This version only supports JWT operations, not encryption
+ * @class
  */
 class EnvCryptr {
+    /**
+     * Creates an instance of EnvCryptr
+     * @param {string} [token] - Optional JWT token for decryption
+     * @throws {Error} If token is invalid or ENV_KEY is missing
+     */
     constructor(token = null) {
         this.token = token;
         this.secret = null;
+        this.decryptedValues = new Map(); // Store decrypted values in memory
 
         if (token) {
             try {
@@ -25,6 +31,8 @@ class EnvCryptr {
                 }
 
                 this.secret = decoded.ENV_KEY;
+                // Decrypt all values during initialization
+                this.initializeDecryptedValues();
             } catch (error) {
                 throw new Error(`Failed to initialize from token: ${error.message}`);
             }
@@ -36,6 +44,42 @@ class EnvCryptr {
         const encoder = new TextEncoder();
         const data = encoder.encode(str);
         return jose.base64url.encode(data);
+    }
+
+    async initializeDecryptedValues() {
+        try {
+            const secret = new TextEncoder().encode(this.secret);
+            const { payload } = await jose.jwtVerify(this.token, secret);
+
+            // Store ENV_KEY
+            this.decryptedValues.set('ENV_KEY', payload.ENV_KEY);
+
+            // Decrypt and store all other values
+            for (const [key, value] of Object.entries(payload)) {
+                if (key === 'ENV_KEY') continue;
+
+                try {
+                    const secretKey = await jose.importJWK(
+                        {
+                            kty: 'oct',
+                            k: this.toBase64Url(this.secret),
+                            alg: 'A256GCM',
+                            use: 'enc'
+                        },
+                        'A256GCM'
+                    );
+
+                    const { plaintext } = await jose.compactDecrypt(value, secretKey);
+                    this.decryptedValues.set(key, new TextDecoder().decode(plaintext));
+                } catch (error) {
+                    console.error(`Error decrypting ${key}:`, error);
+                    // Skip failed decryptions but continue with others
+                }
+            }
+        } catch (error) {
+            console.error('Error initializing decrypted values:', error);
+            throw error;
+        }
     }
 
     async encrypt(env) {
@@ -85,47 +129,23 @@ class EnvCryptr {
             .setProtectedHeader({ alg: 'HS256' })
             .sign(secret);
 
+        // Initialize decrypted values after encryption
+        await this.initializeDecryptedValues();
+
         return this.token;
     }
 
-    async decrypt(envKey) {
-        if (!this.token || !this.secret) {
-            throw new Error('No token or secret found. Initialize with token or run encrypt() first.');
+    /**
+     * Get a decrypted environment value
+     * @param {string} envKey - Key of the environment variable to get
+     * @returns {string} Decrypted value
+     * @throws {Error} If key not found
+     */
+    decrypt(envKey) {
+        if (!this.decryptedValues.has(envKey)) {
+            throw new Error(`Key ${envKey} not found in token`);
         }
-
-        try {
-            const secret = new TextEncoder().encode(this.secret);
-            const { payload } = await jose.jwtVerify(this.token, secret);
-
-            if (!payload[envKey]) {
-                throw new Error(`Key ${envKey} not found in token`);
-            }
-
-            if (envKey === 'ENV_KEY') {
-                return payload[envKey];
-            }
-
-            try {
-                const secretKey = await jose.importJWK(
-                    {
-                        kty: 'oct',
-                        k: this.toBase64Url(this.secret),
-                        alg: 'A256GCM',
-                        use: 'enc'
-                    },
-                    'A256GCM'
-                );
-
-                const { plaintext } = await jose.compactDecrypt(payload[envKey], secretKey);
-                return new TextDecoder().decode(plaintext);
-            } catch (error) {
-                console.error(`Error decrypting ${envKey}:`, error);
-                throw error;
-            }
-        } catch (error) {
-            console.error('Error in decrypt:', error);
-            throw error;
-        }
+        return this.decryptedValues.get(envKey);
     }
 }
 

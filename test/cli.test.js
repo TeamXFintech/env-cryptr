@@ -150,4 +150,31 @@ describe('CLI', () => {
             expect(decryptedEnv).toEqual(mockEnv);
         });
     });
+
+    describe('CLI and EnvCryptr compatibility', () => {
+        it('should be compatible between CLI encryption and direct decryption', async () => {
+            // Mock .env file content
+            const envContent = `ENV_KEY=this-is-32-characters-secure-key
+DATABASE_URL=mongodb://localhost:27017
+API_KEY=secret-api-key-123`;
+
+            // Mock fs read
+            mockFs.readFile.mockResolvedValue(envContent);
+
+            // Encrypt using CLI
+            let encryptedToken;
+            consoleSpy.log.mockImplementationOnce((token) => {
+                encryptedToken = token;
+            });
+
+            await encryptAction({ input: '.env' });
+
+            // Try to decrypt using EnvCryptr directly
+            const cryptr = new EnvCryptr(encryptedToken);
+
+            // Verify decrypted values match original
+            expect(cryptr.decrypt('DATABASE_URL')).toBe('mongodb://localhost:27017');
+            expect(cryptr.decrypt('API_KEY')).toBe('secret-api-key-123');
+        });
+    });
 }); 

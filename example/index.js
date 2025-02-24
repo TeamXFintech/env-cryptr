@@ -23,7 +23,7 @@ function parseEnv(text) {
 
 // Wait for EnvCryptr to be available
 document.addEventListener('DOMContentLoaded', () => {
-    window.encrypt = function () {
+    window.encrypt = async function () {
         try {
             const envText = document.getElementById('envInput').value;
             const env = parseEnv(envText);

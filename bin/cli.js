@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import dotenv from 'dotenv';
 import * as fs from 'fs/promises';
-import EnvCryptr from '../src/envCryptr.js';
+import EnvCryptr, { jwt } from '../src/envCryptr.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
@@ -21,7 +21,7 @@ async function encryptAction(options) {
     try {
         const envConfig = dotenv.parse(await fs.readFile(options.input));
         const cryptr = new EnvCryptr();
-        const token = await cryptr.encrypt(envConfig);
+        const token = cryptr.encrypt(envConfig);
 
         if (options.output) {
             await fs.writeFile(options.output, token);
@@ -68,7 +68,7 @@ async function decryptAction(token, options) {
 
         try {
             const cryptr = new EnvCryptr(token);
-            const decoded = cryptr.token ? JSON.parse(atob(token.split('.')[1])) : {};
+            const decoded = jwt.decode(token);
 
             let envContent = '';
             for (const [key, value] of Object.entries(decoded)) {

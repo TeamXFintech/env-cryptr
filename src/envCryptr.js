@@ -10,46 +10,62 @@
 
 // Minimal JWT implementation
 const jwt = {
+    encode: (payload, secret) => {
+        const header = { typ: 'JWT', alg: 'HS256' };
+        const headerStr = toBase64(JSON.stringify(header));
+        const payloadStr = toBase64(JSON.stringify(payload));
+        return `${headerStr}.${payloadStr}.signature`;
+    },
+
     decode: (token, _, noVerify = false) => {
         try {
             const parts = token.split('.');
             if (parts.length !== 3) throw new Error('Invalid token format');
-
-            const base64Decode = isBrowser ? atob : str =>
-                Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString();
-
-            const payload = JSON.parse(base64Decode(parts[1]));
+            const payload = JSON.parse(fromBase64(parts[1]));
             return payload;
         } catch (e) {
             throw new Error('Invalid JWT');
         }
-    },
-
-    encode: (payload, secret) => {
-        const header = { typ: 'JWT', alg: 'HS256' };
-        const base64Encode = isBrowser ? btoa : str =>
-            Buffer.from(str).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-        const headerStr = base64Encode(JSON.stringify(header));
-        const payloadStr = base64Encode(JSON.stringify(payload));
-        return `${headerStr}.${payloadStr}.signature`;
     }
 };
 
 const isBrowser = typeof window !== 'undefined';
 
-// Base64 helpers
-const toBase64 = (str) => {
-    return isBrowser
-        ? btoa(str)
-        : Buffer.from(str).toString('base64');
+// Base64URL helpers with consistent implementation
+const base64UrlEncode = (str) => {
+    // Convert string to bytes
+    const bytes = new TextEncoder().encode(str);
+
+    // Convert bytes to base64
+    const base64 = isBrowser
+        ? btoa(String.fromCharCode(...bytes))
+        : Buffer.from(bytes).toString('base64');
+
+    // Make URL safe
+    return base64
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
 };
 
-const fromBase64 = (str) => {
-    return isBrowser
-        ? atob(str)
-        : Buffer.from(str, 'base64').toString();
+const base64UrlDecode = (str) => {
+    // Convert URL-safe to standard base64
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    // Add padding
+    while (str.length % 4) str += '=';
+
+    // Decode base64 to bytes
+    const bytes = isBrowser
+        ? Uint8Array.from(atob(str), c => c.charCodeAt(0))
+        : Buffer.from(str, 'base64');
+
+    // Convert bytes to string
+    return new TextDecoder().decode(bytes);
 };
+
+// Use these helpers everywhere
+const toBase64 = base64UrlEncode;
+const fromBase64 = base64UrlDecode;
 
 // Generate random nonce
 const generateNonce = () => {
@@ -247,7 +263,10 @@ const EnvCryptr = (() => {
 
             // Decrypt and store all other values
             for (const [key, value] of Object.entries(decoded)) {
-                if (key === 'ENV_KEY') continue;
+                // Skip JWT claims and ENV_KEY
+                if (['iat', 'exp', 'nbf', 'sub', 'aud', 'iss', 'ENV_KEY'].includes(key)) {
+                    continue;
+                }
 
                 try {
                     const decrypted = chachaDecrypt(value, secret);
@@ -270,13 +289,14 @@ const EnvCryptr = (() => {
             secrets.set(this, env.ENV_KEY);
             const secret = secrets.get(this);
             const payload = {
-                ENV_KEY: env.ENV_KEY
+                ENV_KEY: env.ENV_KEY,
+                iat: Math.floor(Date.now() / 1000),
+                exp: Math.floor(Date.now() / 1000) + 3600 // 1 hour expiration
             };
 
             // Encrypt each environment variable
             for (const [key, value] of Object.entries(env)) {
                 if (key === 'ENV_KEY') continue;
-
                 try {
                     const encrypted = chachaEncrypt(value, secret);
                     payload[key] = encrypted;
@@ -308,4 +328,6 @@ const EnvCryptr = (() => {
     };
 })();
 
+// Export jwt for CLI use
+export { jwt };
 export default EnvCryptr;
